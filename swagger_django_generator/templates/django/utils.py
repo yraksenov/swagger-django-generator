@@ -13,6 +13,7 @@ import os
 import sys
 import uuid
 import datetime
+import jwt
 
 from django.contrib.auth import authenticate, login, get_user_model
 from django.core.exceptions import SuspiciousOperation
@@ -38,7 +39,7 @@ def body_to_dict(body, schema):
        conform to the specified schema.
     """
     try:
-        data = json.loads(body)
+        data = json.loads(body.decode('utf-8'))
         jsonschema.validate(data, schema=schema)
         return data
     except Exception as e:
@@ -63,7 +64,7 @@ def obtain_jwt(attrs, algorithm='HS256'):
     """
     delta = getattr(
         settings,
-        JWT_EXPIRATION,
+        'JWT_EXPIRATION',
         datetime.timedelta(seconds=300),
     )
     username_field = get_user_model().USERNAME_FIELD
@@ -76,7 +77,7 @@ def obtain_jwt(attrs, algorithm='HS256'):
     )
     payload = {
         'user_id': user.pk,
-        'exp': datetime.utcnow() + delta
+        'exp': datetime.datetime.utcnow() + delta
     }
     key = get_secure_key(user.pk)
     token = jwt.encode(
@@ -89,7 +90,8 @@ def obtain_jwt(attrs, algorithm='HS256'):
     }
 
 
-def authenticate_jwt(auth, request, algorithm='HS256'):
+def authenticate_jwt(request, algorithm='HS256'):
+    auth = request.META["HTTP_AUTHORIZATION"].split()
     if 'Authorization' != auth[0] or 'jwt' != auth[1].lower():
         raise AuthenticationFailed('Invalid token')
 
@@ -132,10 +134,10 @@ def login_required_no_redirect(view_func):
             return view_func(request, *args, **kwargs)
 
         {% for sec_desc, sec_type in security_defs|dictsort(true) %}
+        {% if sec_desc == 'basic' %}
         if "HTTP_AUTHORIZATION" in request.META:
             auth = request.META["HTTP_AUTHORIZATION"].split()
             if len(auth) == 2:
-        {% if sec_desc == "basic" %}
                 # NOTE: We only support basic authentication for now.
                 if auth[0].lower() == "basic":
                     base_val = base64.b64decode(auth[1])
@@ -148,14 +150,10 @@ def login_required_no_redirect(view_func):
                         login(request, user)
                         request.user = user
                         return view_func(request, *args, **kwargs)
-        {% endif %}
-        {% if sec_desc == 'JWT' %}
-        # {'JWT': {'name': 'Authorization', 'type': 'apiKey', 'in': 'header'}}
-
-            if authenticate_jwt(auth, request):
-                return view_func(request, *args, **kwargs)
-        {% endif %}
-        {% if sec_decs == 'apiKey' %}
+        {% elif sec_desc == "apiKey" and sec_type["desc"] == "JWT" %}
+        if authenticate_jwt(auth, request):
+            return view_func(request, *args, **kwargs)
+        {% elif sec_desc == "apiKey" and sec_type["desc"] != "JWT" %}
         if "HTTP_X_API_KEY" in request.META:
             key = request.META["HTTP_X_API_KEY"]
             if key in settings.ALLOWED_API_KEYS:

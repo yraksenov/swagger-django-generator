@@ -12,9 +12,16 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views import View
+import django.contrib.auth as django_auth
 
 import {{ module }}.schemas as schemas
 import {{ module }}.utils as utils
+
+{% if "imports" in sources and sources["imports"] %}
+{{ ''.join(sources["imports"]).rstrip() }}
+{% else %}
+# -*-context-*- imports
+{% endif %}
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -81,7 +88,7 @@ class {{ class_name }}(View):
   {% endif %}
         try:
 {% if "{}_{}".format(class_name, verb) in sources %}
-{{ ''.join(sources["{}_{}".format(class_name, verb)]) }}
+{{ ''.join(sources["{}_{}".format(class_name, verb)]).rstrip() }}
 {% else %}
             # -*-context-*- {{ class_name }}_{{verb}}
     {% for ra in info.required_args if ra.in == "query" %}

@@ -106,6 +106,9 @@ def parse_array(schema):
     )
 
 
+CTX_MARK = '# -*-context-*-'
+
+
 def parse_viewfile(view_file_name):
     """
     :return dict { 'class_name'_'verb': code }
@@ -121,18 +124,24 @@ def parse_viewfile(view_file_name):
         for line in vfile:
             line_count += 1
             leading_spaces = len(line) - len(line.lstrip())
-            if not context and '# -*-context-*-' in line:
+            if not class_name_verb and CTX_MARK in line:
                 context = leading_spaces
                 components = line.split()
                 if len(components) != 3:
                     raise Exception(
-                        "the special tag `# -*-context-*-` corrupted at line {}".format(line_count))
+                        "the special tag `{}` corrupted at line {}".format(
+                            CTX_MARK,
+                            line_count))
                 _, _, class_name_verb = line.split()
-            if context:
-                if leading_spaces < context and line.strip() != '':
-                    context = 0
-                    class_name_verb = None
-
+            if class_name_verb:
+                if line.strip() != '':
+                    if leading_spaces < context:
+                        class_name_verb = None
+                    elif class_name_verb == 'imports':
+                        stop = not any(line.startswith(a) for a in [
+                            CTX_MARK, 'from ', 'import '])
+                        if stop:
+                            class_name_verb = None
                 if class_name_verb:
                     result[class_name_verb].append(line)
     return result
