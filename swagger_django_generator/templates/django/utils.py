@@ -12,14 +12,19 @@ import logging
 import os
 import sys
 import uuid
+import datetime
 
-from django.contrib.auth import authenticate, login
+from django.contrib.auth import authenticate, login, get_user_model
 from django.core.exceptions import SuspiciousOperation
 from django.http import HttpResponse
 from django.conf import settings
 
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class AuthenticationFailed(SuspiciousOperation):
+    pass
 
 
 def body_to_dict(body, schema):
@@ -42,6 +47,79 @@ def body_to_dict(body, schema):
         raise SuspiciousOperation(e)
 
 
+def get_secure_key(user_id):
+    User = get_user_model()
+    user = User.objects.get(pk=user_id)
+    salt = getattr(
+        settings,
+        'JWT_SALT',
+        getattr(settings, 'SECRET_KEY'))
+    key = user.password + salt
+    return key
+
+
+def obtain_jwt(attrs, algorithm='HS256'):
+    """
+    """
+    delta = getattr(
+        settings,
+        JWT_EXPIRATION,
+        datetime.timedelta(seconds=300),
+    )
+    username_field = get_user_model().USERNAME_FIELD
+    credentials = {
+        username_field: attrs.get(username_field),
+        'password': attrs.get('password')
+    }
+    user = authenticate(
+        **credentials
+    )
+    payload = {
+        'user_id': user.pk,
+        'exp': datetime.utcnow() + delta
+    }
+    key = get_secure_key(user.pk)
+    token = jwt.encode(
+        payload,
+        key,
+        algorithm,
+    ).decode('utf-8')
+    return {
+        'token': token
+    }
+
+
+def authenticate_jwt(auth, request, algorithm='HS256'):
+    if 'Authorization' != auth[0] or 'jwt' != auth[1].lower():
+        raise AuthenticationFailed('Invalid token')
+
+    try:
+        token = auth[2]
+        unverified_payload = jwt.decode(
+            token=token,
+            key=None,
+            verify=False,
+            algorithms=[algorithm],
+        )
+        user_id = unverified_payload.get('user_id')
+        key = get_secret_key(user_id)
+        payload = jwt.decode(
+            token=auth[2],
+            key=key,
+            verify=True,
+            algorithms=[algorithm],
+        )
+        # return (user, payload)
+    except jwt.ExpiredSignature:
+        raise AuthenticationFailed('The signature has expired')
+
+    except jwt.DecodeError:
+        raise AuthenticationFailed('Error decoding the signature')
+
+    except jwt.InvalidTokenError:
+        raise AuthenticationFailed('Invalid token')
+
+
 def login_required_no_redirect(view_func):
     """
     Helper function that returns an HTTP 401 response if the user making the
@@ -53,9 +131,11 @@ def login_required_no_redirect(view_func):
         if request.user.is_authenticated:
             return view_func(request, *args, **kwargs)
 
+        {% for sec_desc, sec_type in security_defs|dictsort(true) %}
         if "HTTP_AUTHORIZATION" in request.META:
             auth = request.META["HTTP_AUTHORIZATION"].split()
             if len(auth) == 2:
+        {% if sec_desc == "basic" %}
                 # NOTE: We only support basic authentication for now.
                 if auth[0].lower() == "basic":
                     base_val = base64.b64decode(auth[1])
@@ -68,12 +148,20 @@ def login_required_no_redirect(view_func):
                         login(request, user)
                         request.user = user
                         return view_func(request, *args, **kwargs)
+        {% endif %}
+        {% if sec_desc == 'JWT' %}
+        # {'JWT': {'name': 'Authorization', 'type': 'apiKey', 'in': 'header'}}
 
+            if authenticate_jwt(auth, request):
+                return view_func(request, *args, **kwargs)
+        {% endif %}
+        {% if sec_decs == 'apiKey' %}
         if "HTTP_X_API_KEY" in request.META:
             key = request.META["HTTP_X_API_KEY"]
             if key in settings.ALLOWED_API_KEYS:
                 return view_func(request, *args, **kwargs)
-
+        {% endif %}
+        {% endfor %}
         return HttpResponse("Unauthorized", status=401)
 
     return wrapper

@@ -1,5 +1,5 @@
 """
-Do not modify this file. It is generated from the Swagger specification.
+Do not remove -*-context-*- marks in this file.
 
 """
 import importlib
@@ -80,6 +80,10 @@ class {{ class_name }}(View):
 
   {% endif %}
         try:
+{% if "{}_{}".format(class_name, verb) in sources %}
+{{ ''.join(sources["{}_{}".format(class_name, verb)]) }}
+{% else %}
+            # -*-context-*- {{ class_name }}_{{verb}}
     {% for ra in info.required_args if ra.in == "query" %}
             if "{{ ra.name }}" not in request.GET:
                 return HttpResponseBadRequest("{{ ra.name }} required")
@@ -172,6 +176,7 @@ class {{ class_name }}(View):
                 response[key] = val
 
             return response
+{% endif %}
         except ValidationError as ve:
             return HttpResponseBadRequest("Parameter validation failed: {}".format(ve.message))
         except ValueError as ve:
@@ -195,4 +200,3 @@ class __SWAGGER_SPEC__(View):
         security_definitions["basic_auth"] = {"type": "basic"}
         spec["securityDefinitions"] = security_definitions
         return JsonResponse(spec)
-

@@ -6,6 +6,8 @@ import json
 import os
 import sys
 from swagger_parser import SwaggerParser
+from collections import defaultdict
+from pprint import pformat
 
 DEFAULT_OUTPUT_DIR = "./generated"
 DEFAULT_MODULE = "generated"
@@ -102,6 +104,38 @@ def parse_array(schema):
         name=schema["name"],
         separator=SEPARATORS[schema.get("collectionFormat", ",")]
     )
+
+
+def parse_viewfile(view_file_name):
+    """
+    :return dict { 'class_name'_'verb': code }
+    """
+    result = defaultdict(lambda: [])
+    if not os.path.exists(view_file_name):
+        return result
+
+    line_count = 0
+    context = 0
+    class_name_verb = None
+    with open(view_file_name) as vfile:
+        for line in vfile:
+            line_count += 1
+            leading_spaces = len(line) - len(line.lstrip())
+            if not context and '# -*-context-*-' in line:
+                context = leading_spaces
+                components = line.split()
+                if len(components) != 3:
+                    raise Exception(
+                        "the special tag `# -*-context-*-` corrupted at line {}".format(line_count))
+                _, _, class_name_verb = line.split()
+            if context:
+                if leading_spaces < context and line.strip() != '':
+                    context = 0
+                    class_name_verb = None
+
+                if class_name_verb:
+                    result[class_name_verb].append(line)
+    return result
 
 
 def render_to_string(backend, filename, context):
@@ -236,6 +270,7 @@ class Generator(object):
         }
 
         self._make_class_definitions()
+        self._make_security_definitions()
 
     def resolve_schema_references(self, definition):
         # type: (Generator, Dict) -> None
@@ -256,6 +291,22 @@ class Generator(object):
         for value in definition.values():
             if isinstance(value, dict):
                 self.resolve_schema_references(value)
+
+    def _make_security_definitions(self):
+        """Process available security definition types:
+        * basic
+        * apiKey + JWT/Bearer option as a definition
+        - for now there's no support for OAuth2
+        - for now only 'in: header' is implemented
+        """
+        self.security_defs = {}
+        sec_defs = self.parser.specification.get("securityDefinitions", {})
+        for sec_desc, sec_type in sec_defs.items():
+            if sec_type['type'] in ['basic', 'apiKey']:
+                if sec_type.get('in') == 'header':
+                    sec_def = {'desc': sec_desc}
+                    sec_def.update(sec_type)
+                    self.security_defs[sec_type['type']] = sec_def
 
     def _make_class_definitions(self):
         self._classes = {}
@@ -416,7 +467,8 @@ class Generator(object):
                 "classes": self._classes,
                 "module": self.module_name,
                 "specification": json.dumps(self.parser.specification, indent=4,
-                                            sort_keys=True).replace("\\", "\\\\")
+                                            sort_keys=True).replace("\\", "\\\\"),
+                "sources": self.view_sources,
             })
 
     def generate_stubs(self):
@@ -437,7 +489,13 @@ class Generator(object):
         Generate a `utils.py` file from the given specification.
         :return: str
         """
-        return render_to_string(self.backend, "utils.py", {})
+        return render_to_string(
+            self.backend,
+            "utils.py",
+            {
+                "security_defs": self.security_defs
+            },
+        )
 
 @click.command()
 @click.argument("specification_path", type=click.Path(dir_okay=False, exists=True))
@@ -468,6 +526,12 @@ def main(specification_path, spec_format, backend, verbose, output_dir, module_n
     try:
         click.secho("Loading specification file...", fg="green")
         generator.load_specification(specification_path, spec_format)
+
+        click.secho("Loading current view", fg="green")
+        generator.view_sources = parse_viewfile(
+            os.path.join(output_dir, views_file))
+        if verbose:
+            print(pformat(generator.view_sources))
 
         click.secho("Generating URLs file...", fg="green")
         with open(os.path.join(output_dir, urls_file), "w") as f:
