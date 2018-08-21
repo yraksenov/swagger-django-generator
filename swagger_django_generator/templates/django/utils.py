@@ -56,7 +56,7 @@ def get_secure_key(user_id):
         'JWT_SALT',
         getattr(settings, 'SECRET_KEY'))
     key = user.password + salt
-    return key
+    return key, user
 
 
 def obtain_jwt(attrs, algorithm='HS256'):
@@ -79,7 +79,7 @@ def obtain_jwt(attrs, algorithm='HS256'):
         'user_id': user.pk,
         'exp': datetime.datetime.utcnow() + delta
     }
-    key = get_secure_key(user.pk)
+    key, user = get_secure_key(user.pk)
     token = jwt.encode(
         payload,
         key,
@@ -92,26 +92,30 @@ def obtain_jwt(attrs, algorithm='HS256'):
 
 def authenticate_jwt(request, algorithm='HS256'):
     auth = request.META["HTTP_AUTHORIZATION"].split()
-    if 'Authorization' != auth[0] or 'jwt' != auth[1].lower():
+    if 'jwt' != auth[0].lower():
         raise AuthenticationFailed('Invalid token')
 
     try:
-        token = auth[2]
+        token = auth[1]
         unverified_payload = jwt.decode(
-            token=token,
+            jwt=token,
             key=None,
             verify=False,
             algorithms=[algorithm],
         )
         user_id = unverified_payload.get('user_id')
-        key = get_secret_key(user_id)
+        key, user = get_secure_key(user_id)
+        if not user or not user.is_active:
+            raise AuthenticationFailed('Invalid token')
+
         payload = jwt.decode(
-            token=auth[2],
+            jwt=token,
             key=key,
             verify=True,
             algorithms=[algorithm],
         )
-        # return (user, payload)
+        request.user = user
+        return user
     except jwt.ExpiredSignature:
         raise AuthenticationFailed('The signature has expired')
 
@@ -151,7 +155,7 @@ def login_required_no_redirect(view_func):
                         request.user = user
                         return view_func(request, *args, **kwargs)
         {% elif sec_desc == "apiKey" and sec_type["desc"] == "JWT" %}
-        if authenticate_jwt(auth, request):
+        if authenticate_jwt(request):
             return view_func(request, *args, **kwargs)
         {% elif sec_desc == "apiKey" and sec_type["desc"] != "JWT" %}
         if "HTTP_X_API_KEY" in request.META:
