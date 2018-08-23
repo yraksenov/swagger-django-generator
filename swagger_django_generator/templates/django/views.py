@@ -12,7 +12,6 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.views import View
-import django.contrib.auth as django_auth
 
 import {{ module }}.schemas as schemas
 import {{ module }}.utils as utils
