@@ -15,7 +15,12 @@ import uuid
 import datetime
 import jwt
 
-from django.contrib.auth import authenticate, login, get_user_model
+from django.contrib.auth import (
+    user_logged_in,
+    authenticate,
+    login,
+    get_user_model,
+)
 from django.core.exceptions import SuspiciousOperation
 from django.http import HttpResponse
 from django.conf import settings
@@ -85,6 +90,7 @@ def obtain_jwt(attrs, algorithm='HS256'):
         key,
         algorithm,
     ).decode('utf-8')
+    user_logged_in.send(sender=user.__class__, user=user)
     return {
         'token': token
     }
