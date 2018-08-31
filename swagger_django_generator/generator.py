@@ -1,13 +1,17 @@
 import copy
 
-import click
-import jinja2
 import json
 import os
 import sys
-from swagger_parser import SwaggerParser
+import parser
+
+import click
+import jinja2
 from collections import defaultdict
 from pprint import pformat
+
+from swagger_parser import SwaggerParser
+
 
 DEFAULT_OUTPUT_DIR = "./generated"
 DEFAULT_MODULE = "generated"
@@ -106,44 +110,27 @@ def parse_array(schema):
     )
 
 
-CTX_MARK = '# -*-context-*-'
-
-
-def parse_viewfile(view_file_name):
+def get_views_impl_path(output_directory, view_file):
     """
-    :return dict { 'class_name'_'verb': code }
+    Getting the views impl file path.
     """
-    result = defaultdict(lambda: [])
-    if not os.path.exists(view_file_name):
-        return result
+    filename, file_extension = os.path.splitext(view_file)
+    impl_fn = '{}_impl{}'.format(filename, file_extension)
+    result = os.path.join(output_directory, impl_fn)
+    return result
 
-    line_count = 0
-    context = 0
-    class_name_verb = None
-    with open(view_file_name) as vfile:
-        for line in vfile:
-            line_count += 1
-            leading_spaces = len(line) - len(line.lstrip())
-            if not class_name_verb and CTX_MARK in line:
-                context = leading_spaces
-                components = line.split()
-                if len(components) != 3:
-                    raise Exception(
-                        "the special tag `{}` corrupted at line {}".format(
-                            CTX_MARK,
-                            line_count))
-                _, _, class_name_verb = line.split()
-            if class_name_verb:
-                if line.strip() != '':
-                    if leading_spaces < context:
-                        class_name_verb = None
-                    elif class_name_verb == 'imports':
-                        stop = not any(line.startswith(a) for a in [
-                            CTX_MARK, 'from ', 'import '])
-                        if stop:
-                            class_name_verb = None
-                if class_name_verb:
-                    result[class_name_verb].append(line)
+
+def parse_view_impl(view_impl_path):
+    """
+    Getting function names from view_impl
+    """
+    if not os.path.exists(view_impl_path):
+        return []
+
+    view_impl_content = ''.join(open(view_impl_path, 'r').readlines())
+    suite = parser.suite(view_impl_content)
+    compiled = suite.compile()
+    result = compiled.co_names
     return result
 
 
@@ -477,7 +464,7 @@ class Generator(object):
                 "module": self.module_name,
                 "specification": json.dumps(self.parser.specification, indent=4,
                                             sort_keys=True).replace("\\", "\\\\"),
-                "sources": self.view_sources,
+                "sources": self.sources,
             })
 
     def generate_stubs(self):
@@ -536,11 +523,11 @@ def main(specification_path, spec_format, backend, verbose, output_dir, module_n
         click.secho("Loading specification file...", fg="green")
         generator.load_specification(specification_path, spec_format)
 
-        click.secho("Loading current view", fg="green")
-        generator.view_sources = parse_viewfile(
-            os.path.join(output_dir, views_file))
+        click.secho("Parsing current view_impl", fg="green")
+        views_impl_path = get_views_impl_path(output_dir, views_file)
+        generator.sources = parse_view_impl(views_impl_path)
         if verbose:
-            print(pformat(generator.view_sources))
+            print(views_impl_path, pformat(generator.sources))
 
         click.secho("Generating URLs file...", fg="green")
         with open(os.path.join(output_dir, urls_file), "w") as f:
