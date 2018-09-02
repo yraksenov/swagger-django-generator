@@ -7,8 +7,6 @@ import parser
 
 import click
 import jinja2
-from collections import defaultdict
-from pprint import pformat
 
 from swagger_parser import SwaggerParser
 
@@ -108,30 +106,6 @@ def parse_array(schema):
         name=schema["name"],
         separator=SEPARATORS[schema.get("collectionFormat", ",")]
     )
-
-
-def get_views_impl_path(output_directory, view_file):
-    """
-    Getting the views impl file path.
-    """
-    filename, file_extension = os.path.splitext(view_file)
-    impl_fn = '{}_impl{}'.format(filename, file_extension)
-    result = os.path.join(output_directory, impl_fn)
-    return result
-
-
-def parse_view_impl(view_impl_path):
-    """
-    Getting function names from view_impl
-    """
-    if not os.path.exists(view_impl_path):
-        return []
-
-    view_impl_content = ''.join(open(view_impl_path, 'r').readlines())
-    suite = parser.suite(view_impl_content)
-    compiled = suite.compile()
-    result = compiled.co_names
-    return result
 
 
 def render_to_string(backend, filename, context):
@@ -464,7 +438,6 @@ class Generator(object):
                 "module": self.module_name,
                 "specification": json.dumps(self.parser.specification, indent=4,
                                             sort_keys=True).replace("\\", "\\\\"),
-                "sources": self.sources,
             })
 
     def generate_stubs(self):
@@ -522,12 +495,6 @@ def main(specification_path, spec_format, backend, verbose, output_dir, module_n
     try:
         click.secho("Loading specification file...", fg="green")
         generator.load_specification(specification_path, spec_format)
-
-        click.secho("Parsing current view_impl", fg="green")
-        views_impl_path = get_views_impl_path(output_dir, views_file)
-        generator.sources = parse_view_impl(views_impl_path)
-        if verbose:
-            print(views_impl_path, pformat(generator.sources))
 
         click.secho("Generating URLs file...", fg="green")
         with open(os.path.join(output_dir, urls_file), "w") as f:

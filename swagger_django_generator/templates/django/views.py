@@ -15,9 +15,10 @@ from django.views import View
 
 import {{ module }}.schemas as schemas
 import {{ module }}.utils as utils
-{% if sources %}
-import {{ module }}.views_impl as impl
-{% endif %}
+try:
+    import {{ module }}.views_impl as impl
+except ImportError:
+    impl = lambda: None
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -41,6 +42,24 @@ except AttributeError:
 module_name, class_name = stub_class_path.rsplit(".", 1)
 Module = importlib.import_module(module_name)
 Stubs = getattr(Module, class_name)
+
+METHOD_NAMES = [
+{% for _, verbs in classes|dictsort(true) %}
+    {% for _, info in verbs|dictsort(true) %}
+    "{{ info.operation }}",
+    {% endfor %}
+{% endfor %}
+]
+METHODS = {
+    mth_name: getattr(impl, mth_name)
+    for mth_name in METHOD_NAMES
+    if hasattr(impl, mth_name)
+}
+RESPONSE_METHODS = {
+    mth_name: getattr(impl, mth_name)
+    for mth_name in [name + '_response' for name in METHOD_NAMES]
+    if hasattr(impl, mth_name)
+}
 
 
 def maybe_validate_result(result_string, schema):
@@ -155,8 +174,11 @@ class {{ class_name }}(View):
 
       {% endfor %}
     {% endif %}
-            # {{ info.operation }}
-            result = {% if info.operation in sources %}impl.{% else %}Stubs.{% endif %}{{ info.operation }}(request, {% if info.body %}body, {% endif %}{% if info.form_data %}form_data, {% endif %}
+            if "{{ info.operation }}" in METHODS:
+                method = METHODS["{{ info.operation }}"]
+            else:
+                methon = Stubs.{{ info.operation }}
+            result = method(request, {% if info.body %}body, {% endif %}{% if info.form_data %}form_data, {% endif %}
                 {% for ra in info.required_args %}{{ ra.name }}, {% endfor %}
                 {% for oa in info.optional_args if oa.in == "query" %}{{ oa.name }}, {% endfor %})
 
@@ -168,8 +190,11 @@ class {{ class_name }}(View):
             # The result may contain fields with date or datetime values that will not
             # pass JSON validation. We first create the response, and then maybe validate
             # the response content against the schema.
-            {% set encoder = '{}_JSONEncoder'.format(info.operation) %}
-            response = JsonResponse(result, safe=False{% if encoder in sources %}, encoder=impl.{{ encoder }}{% endif %})
+            if '{}_response'.format('{{ info.operation }}') in RESPONSE_METHODS:
+                response_method = RESPONSE_METHODS['{{ info.operation }}_response']
+            else:
+                response_method = JsonResponse
+            response = response_method(result, safe=False)
 
             maybe_validate_result(response.content, self.{{ verb|upper }}_RESPONSE_SCHEMA)
 
