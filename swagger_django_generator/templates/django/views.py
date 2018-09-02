@@ -177,7 +177,7 @@ class {{ class_name }}(View):
             if "{{ info.operation }}" in METHODS:
                 method = METHODS["{{ info.operation }}"]
             else:
-                methon = Stubs.{{ info.operation }}
+                method = Stubs.{{ info.operation }}
             result = method(request, {% if info.body %}body, {% endif %}{% if info.form_data %}form_data, {% endif %}
                 {% for ra in info.required_args %}{{ ra.name }}, {% endfor %}
                 {% for oa in info.optional_args if oa.in == "query" %}{{ oa.name }}, {% endfor %})
