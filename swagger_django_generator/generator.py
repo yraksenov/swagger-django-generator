@@ -117,7 +117,10 @@ def render_to_string(backend, filename, context):
     :param context: The data to use when rendering the template
     :return: The rendered template as a string
     """
-    template_directory = "./swagger_django_generator/templates/{}".format(backend)
+    template_directory = os.path.join(
+        os.path.dirname(os.path.realpath(__file__)),
+        'templates',
+        backend)
     loaders = [jinja2.FileSystemLoader(template_directory)]
     try:
         import swagger_django_generator
@@ -132,7 +135,6 @@ def render_to_string(backend, filename, context):
     )
     environment.filters["clean_schema"] = clean_schema
     environment.filters["parse_array"] = parse_array
-
     return environment.get_template(filename).render(context)
 
 
